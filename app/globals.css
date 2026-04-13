@@ -1,0 +1,70 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --primary: #ba9eff;
+  --primary-dim: #8455ef;
+  --primary-fixed-dim: #a27cff;
+  --secondary: #68fcbf;
+  --secondary-dim: #57edb1;
+  --tertiary: #699cff;
+  --tertiary-dim: #73a2ff;
+  --error: #ff6e84;
+  --error-dim: #d73357;
+  --bg: #060e20;
+  --surface-low: #091328;
+  --surface-container: #0f1930;
+  --surface-high: #141f38;
+  --surface-highest: #192540;
+  --surface-bright: #1f2b49;
+  --on-surface: #dee5ff;
+  --on-surface-variant: #a3aac4;
+  --outline: #6d758c;
+  --outline-variant: #40485d;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--on-surface);
+  font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--surface-high); border-radius: 10px; }
+
+input, button, textarea, select { font-family: inherit; }
+button { cursor: pointer; }
+
+/* Date picker - светлая иконка календаря */
+input[type="date"] {
+  color-scheme: dark;
+  position: relative;
+}
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7) sepia(1) saturate(2) hue-rotate(200deg) brightness(1.4);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  opacity: 0.8;
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  background: rgba(186,158,255,0.15);
+}
+
+
+
+
+
+/* Select — кастомная стрелочка светлая, одинаковый паддинг */
+select {
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none'%3E%3Cpath stroke='%23a3aac4' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' d='M6 9l6 6 6-6'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+  padding-right: 36px !important;
+}
