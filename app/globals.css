@@ -68,3 +68,10 @@ select {
   background-position: right 12px center !important;
   padding-right: 36px !important;
 }
+
+/* iOS - запрет зума при фокусе на input/select */
+@media (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}

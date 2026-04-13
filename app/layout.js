@@ -13,12 +13,17 @@ export const metadata = {
 
 export const viewport = {
   themeColor: '#060e20',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 }
 
 export default function RootLayout({ children }) {
   return (
     <html lang="ru">
       <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
         <link rel="icon" href="/favicon.ico" sizes="any"/>
         <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png"/>
         <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png"/>
