@@ -1,4 +1,54 @@
 'use client';
+
+// Конфетти + звук
+function triggerConfetti(element) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const playNote = (freq, start, duration) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = freq; osc.type = 'sine';
+      gain.gain.setValueAtTime(0, ctx.currentTime + start);
+      gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + duration);
+    };
+    playNote(523, 0, 0.15); playNote(659, 0.15, 0.15);
+    playNote(784, 0.3, 0.15); playNote(1047, 0.45, 0.3);
+  } catch(e) {}
+  const rect = element ? element.getBoundingClientRect() : { left: window.innerWidth/2, top: window.innerHeight/2, width: 0, height: 0 };
+  const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
+  const colors = ['#ba9eff','#68fcbf','#699cff','#ff6e84','#ffd166','#fff'];
+  const container = document.createElement('div');
+  container.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;overflow:hidden;';
+  document.body.appendChild(container);
+  for (let i = 0; i < 40; i++) {
+    const p = document.createElement('div');
+    const color = colors[Math.floor(Math.random()*colors.length)];
+    const size = Math.random()*8+4;
+    const angle = Math.random()*360*(Math.PI/180);
+    const vel = Math.random()*200+80;
+    const vx = Math.cos(angle)*vel, vy = Math.sin(angle)*vel-120;
+    p.style.cssText = `position:fixed;left:${cx}px;top:${cy}px;width:${size}px;height:${size}px;background:${color};border-radius:${Math.random()>.5?'50%':'2px'};pointer-events:none;transform:translate(-50%,-50%);`;
+    container.appendChild(p);
+    let t0 = null; const dur = 900+Math.random()*400;
+    const anim = (ts) => {
+      if (!t0) t0 = ts;
+      const prog = (ts-t0)/dur;
+      if (prog >= 1) { p.remove(); return; }
+      p.style.left = (cx+vx*prog)+'px';
+      p.style.top = (cy+vy*prog+300*prog*prog)+'px';
+      p.style.opacity = 1-prog;
+      p.style.transform = `translate(-50%,-50%) rotate(${prog*360}deg)`;
+      requestAnimationFrame(anim);
+    };
+    requestAnimationFrame(anim);
+  }
+  setTimeout(()=>container.remove(), 1500);
+}
+
 import { today, formatDate } from '../lib/store';
 
 const COLORS = ['#ba9eff','#68fcbf','#699cff','#ff6e84','#ffd166','#f77f00'];
