@@ -115,7 +115,7 @@ export default function TodayView({ tasks, projects, onToggleTask }) {
                   }}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-bright)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'var(--surface-high)'}>
-                    <button onClick={() => onToggleTask(t.id)} style={{
+                    <button onClick={(e) => { if (!t.completed) triggerConfetti(e.currentTarget); onToggleTask(t.id); }} style={{
                       width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
                       border: `2px solid ${t.completed ? 'var(--secondary)' : 'var(--outline-variant)'}`,
                       background: t.completed ? 'var(--secondary)' : 'none',

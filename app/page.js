@@ -5,6 +5,7 @@ import {
   fetchTasks, createTask, updateTask, deleteTaskForever, reorderTasks,
   today
 } from '../lib/store';
+import { supabase } from '../lib/supabase';
 import Sidebar from '../components/Sidebar';
 import TopNav from '../components/TopNav';
 import Dashboard from '../components/Dashboard';
@@ -22,6 +23,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [fabOpen, setFabOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -42,6 +44,34 @@ export default function Home() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Realtime подписка — автообновление при изменениях в базе
+  useEffect(() => {
+    const projectsSub = supabase
+      .channel('projects-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => {
+        fetchProjects().then(p => setProjects(p));
+      })
+      .subscribe();
+
+    const tasksSub = supabase
+      .channel('tasks-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
+        fetchTasks().then(t => setTasks(t));
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(projectsSub);
+      supabase.removeChannel(tasksSub);
+    };
+  }, []);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  };
 
   const openProject = (id) => { setActiveProjectId(id); setActiveScreen('project'); setSidebarOpen(false); };
   const goOverview = () => { setActiveScreen('dashboard'); setSidebarOpen(false); };
@@ -242,6 +272,7 @@ export default function Home() {
       )}
 
       <style jsx global>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
         @media (max-width: 768px) {
           .main-content { margin-left: 0 !important; padding: 20px 16px 80px !important; }
         }

@@ -359,7 +359,7 @@ function TaskItem({ task, index, tasks, onToggle, onDelete, onUpdate, onReorder 
         </svg>
       </div>
 
-      <button onClick={() => onToggle(task.id)} style={{
+      <button onClick={(e) => { if (!task.completed) triggerConfetti(e.currentTarget); onToggle(task.id); }} style={{
         width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
         border: `2px solid ${task.completed ? 'var(--secondary)' : task.priority === 'high' ? '#ff6e84' : 'var(--outline-variant)'}`,
         background: task.completed ? 'var(--secondary)' : 'none',
