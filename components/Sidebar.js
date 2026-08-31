@@ -50,12 +50,9 @@ export default function Sidebar({ projects, activeProjectId, activeScreen, onPro
         height: 'calc(100vh - 64px)', position: 'fixed', top: 64, left: 0,
         overflowY: 'auto', zIndex: 40,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '0 8px', marginBottom: 22 }}>
-          <img src="/icon.webp" alt="Tudu" width={38} height={38} style={{ borderRadius: 11, flexShrink: 0, boxShadow: '0 4px 10px rgba(26,126,252,0.3)' }} />
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Проекты</div>
-            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1 }}>Рабочее пространство</div>
-          </div>
+        <div style={{ padding: '0 8px', marginBottom: 22 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Проекты</div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1 }}>Рабочее пространство</div>
         </div>
 
         <nav style={{ flex: 1 }}>
