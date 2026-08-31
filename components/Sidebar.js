@@ -1,27 +1,14 @@
 'use client';
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { projectColor } from '../lib/ui';
+import SortableList from './SortableList';
 
 export default function Sidebar({ projects, activeProjectId, activeScreen, onProjectClick, onOverview, onToday, onUpcoming, onTrash, trashedCount, onAddProject, onReorderProjects, isOpen, onClose }) {
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
-  const dragIdx = useRef(null);
-  const dragOverIdx = useRef(null);
 
   const handleAdd = () => {
     if (newName.trim()) { onAddProject(newName.trim()); setNewName(''); setAdding(false); }
-  };
-
-  const handleDragStart = (i) => { dragIdx.current = i; };
-  const handleDragOver = (e, i) => { e.preventDefault(); dragOverIdx.current = i; };
-  const handleDrop = () => {
-    if (dragIdx.current === null || dragOverIdx.current === null) return;
-    const reordered = [...projects];
-    const [moved] = reordered.splice(dragIdx.current, 1);
-    reordered.splice(dragOverIdx.current, 0, moved);
-    onReorderProjects(reordered);
-    dragIdx.current = null;
-    dragOverIdx.current = null;
   };
 
   const navItems = [
@@ -71,36 +58,39 @@ export default function Sidebar({ projects, activeProjectId, activeScreen, onPro
             Рабочее пространство
           </div>
 
-          {projects.map((p, i) => {
-            const active = activeProjectId === p.id && activeScreen === 'project';
-            return (
-              <div key={p.id} draggable
-                onDragStart={() => handleDragStart(i)}
-                onDragOver={(e) => handleDragOver(e, i)}
-                onDrop={handleDrop}
-                style={{ display: 'flex', alignItems: 'center', marginBottom: 2 }}>
-                <div style={{ padding: '9px 3px', cursor: 'grab', color: 'var(--text-muted)', opacity: 0.4, flexShrink: 0 }}>
-                  <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor">
-                    <circle cx="2" cy="3" r="1.5" /><circle cx="8" cy="3" r="1.5" />
-                    <circle cx="2" cy="8" r="1.5" /><circle cx="8" cy="8" r="1.5" />
-                    <circle cx="2" cy="13" r="1.5" /><circle cx="8" cy="13" r="1.5" />
-                  </svg>
+          <SortableList items={projects} gap={2} onReorder={onReorderProjects}
+            renderRow={(p, { dragging, index, handleProps }) => {
+              const active = activeProjectId === p.id && activeScreen === 'project';
+              return (
+                <div style={{
+                  display: 'flex', alignItems: 'center',
+                  borderRadius: 9,
+                  background: dragging ? 'var(--surface)' : 'none',
+                  boxShadow: dragging ? 'var(--shadow-md)' : 'none',
+                }}>
+                  <span {...handleProps} onClick={e => e.stopPropagation()}
+                    style={{ padding: '10px 4px', cursor: 'grab', color: 'var(--text-muted)', opacity: dragging ? 0.9 : 0.4, flexShrink: 0, display: 'flex', touchAction: 'none' }}>
+                    <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor">
+                      <circle cx="2" cy="3" r="1.5" /><circle cx="8" cy="3" r="1.5" />
+                      <circle cx="2" cy="8" r="1.5" /><circle cx="8" cy="8" r="1.5" />
+                      <circle cx="2" cy="13" r="1.5" /><circle cx="8" cy="13" r="1.5" />
+                    </svg>
+                  </span>
+                  <button onClick={() => { if (!dragging) onProjectClick(p.id); }} style={{
+                    flex: 1, display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px',
+                    borderRadius: 9, fontSize: 14, fontWeight: 500,
+                    color: active ? 'var(--primary)' : 'var(--text-secondary)',
+                    background: active ? 'var(--primary-soft)' : 'none',
+                    border: 'none', textAlign: 'left', transition: 'background .15s, color .15s', cursor: 'pointer', minWidth: 0,
+                  }}
+                    onMouseEnter={e => { if (!active && !dragging) e.currentTarget.style.background = 'var(--surface-2)'; }}
+                    onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'none'; }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: projectColor(index), flexShrink: 0 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                  </button>
                 </div>
-                <button onClick={() => onProjectClick(p.id)} style={{
-                  flex: 1, display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px',
-                  borderRadius: 9, fontSize: 14, fontWeight: 500,
-                  color: active ? 'var(--primary)' : 'var(--text-secondary)',
-                  background: active ? 'var(--primary-soft)' : 'none',
-                  border: 'none', textAlign: 'left', transition: 'all .15s', cursor: 'pointer', minWidth: 0,
-                }}
-                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--surface-2)'; }}
-                  onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'none'; }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: projectColor(i), flexShrink: 0 }} />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                </button>
-              </div>
-            );
-          })}
+              );
+            }} />
 
           {adding ? (
             <div style={{ padding: '8px 4px' }}>
