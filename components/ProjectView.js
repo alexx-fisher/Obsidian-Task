@@ -1,88 +1,21 @@
 'use client';
-import { useState, useRef } from 'react';
-import { today, formatDate } from '../lib/store';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { today } from '../lib/store';
+import { TaskCheckbox, PriorityBadge, PrioritySelect, DateQuickPick, CalIcon } from './common';
+import { prio, groupTasks, GROUP_META, sortTasks, humanDate, dueTone } from '../lib/ui';
 
-// Конфетти + звук при выполнении задачи
-function triggerConfetti(element) {
-  // Звук победы
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const playNote = (freq, start, duration, type = 'sine') => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = freq;
-      osc.type = type;
-      gain.gain.setValueAtTime(0, ctx.currentTime + start);
-      gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + start + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration);
-      osc.start(ctx.currentTime + start);
-      osc.stop(ctx.currentTime + start + duration);
-    };
-    // Весёлая мелодия — до ми соль до
-    playNote(523, 0, 0.15);
-    playNote(659, 0.15, 0.15);
-    playNote(784, 0.3, 0.15);
-    playNote(1047, 0.45, 0.3);
-  } catch(e) {}
+const FILTERS = [
+  { key: 'active', label: 'Активные' },
+  { key: 'all', label: 'Все' },
+  { key: 'done', label: 'Выполненные' },
+];
+const SORTS = [
+  { key: 'date', label: 'По дате' },
+  { key: 'priority', label: 'По приоритету' },
+  { key: 'manual', label: 'Вручную' },
+];
 
-  // Конфетти
-  const rect = element ? element.getBoundingClientRect() : { left: window.innerWidth/2, top: window.innerHeight/2, width: 0, height: 0 };
-  const cx = rect.left + rect.width / 2;
-  const cy = rect.top + rect.height / 2;
-  const colors = ['#ba9eff','#68fcbf','#699cff','#ff6e84','#ffd166','#fff'];
-  const container = document.createElement('div');
-  container.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;overflow:hidden;';
-  document.body.appendChild(container);
-
-  for (let i = 0; i < 40; i++) {
-    const particle = document.createElement('div');
-    const color = colors[Math.floor(Math.random() * colors.length)];
-    const size = Math.random() * 8 + 4;
-    const angle = (Math.random() * 360) * (Math.PI / 180);
-    const velocity = Math.random() * 200 + 80;
-    const vx = Math.cos(angle) * velocity;
-    const vy = Math.sin(angle) * velocity - 120;
-    particle.style.cssText = `
-      position:fixed;
-      left:${cx}px;top:${cy}px;
-      width:${size}px;height:${size}px;
-      background:${color};
-      border-radius:${Math.random() > 0.5 ? '50%' : '2px'};
-      pointer-events:none;
-      transform:translate(-50%,-50%);
-    `;
-    container.appendChild(particle);
-    let startTime = null;
-    const duration = 900 + Math.random() * 400;
-    const animate = (timestamp) => {
-      if (!startTime) startTime = timestamp;
-      const elapsed = timestamp - startTime;
-      const progress = elapsed / duration;
-      if (progress >= 1) { particle.remove(); return; }
-      const x = cx + vx * progress;
-      const y = cy + vy * progress + 300 * progress * progress;
-      const opacity = 1 - progress;
-      particle.style.left = x + 'px';
-      particle.style.top = y + 'px';
-      particle.style.opacity = opacity;
-      particle.style.transform = `translate(-50%,-50%) rotate(${progress * 360}deg)`;
-      requestAnimationFrame(animate);
-    };
-    requestAnimationFrame(animate);
-  }
-  setTimeout(() => container.remove(), 1500);
-}
-
-// Правка: только приоритет, цвета красный/зелёный/голубой
-const PRIO = {
-  high:   { label: 'Высокий', color: '#ff6e84', bg: 'rgba(255,110,132,0.12)' },
-  medium: { label: 'Средний', color: '#68fcbf', bg: 'rgba(104,252,191,0.12)' },
-  low:    { label: 'Низкий',  color: '#699cff', bg: 'rgba(105,156,255,0.12)' },
-};
-
-export default function ProjectView({ project, tasks, onBack, onAddTask, onToggleTask, onSoftDeleteTask, onUpdateTask, onUpdateProject, onReorderTasks, onDeleteProject }) {
+export default function ProjectView({ project, tasks, onBack, onAddTask, onToggleTask, onOpenTask, onUpdateProject, onReorderTasks, onDeleteProject }) {
   const [newTask, setNewTask] = useState('');
   const [priority, setPriority] = useState('medium');
   const [dueDate, setDueDate] = useState(today());
@@ -90,323 +23,546 @@ export default function ProjectView({ project, tasks, onBack, onAddTask, onToggl
   const [titleValue, setTitleValue] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [filter, setFilter] = useState('active');
+  const [sort, setSort] = useState('manual');
+  const [showDone, setShowDone] = useState(false);
 
   if (!project) return null;
 
-  const activeTasks = tasks.filter(t => !t.deleted);
-  const pct = activeTasks.length ? Math.round(activeTasks.filter(t => t.completed).length / activeTasks.length * 100) : 0;
+  const active = tasks.filter(t => !t.completed);
+  const done = tasks.filter(t => t.completed);
+  const pct = tasks.length ? Math.round(done.length / tasks.length * 100) : 0;
 
   const handleAdd = () => {
     if (newTask.trim()) {
       onAddTask(newTask.trim(), priority, dueDate || null);
       setNewTask('');
       setDueDate(today());
+      setPriority('medium');
     }
   };
 
   const handleTitleSave = () => {
     if (titleValue.trim()) onUpdateProject({ ...project, name: titleValue.trim() });
     setEditingTitle(false);
-    setMenuOpen(false);
   };
 
+  // Приоритеты для правой панели
+  const prioCounts = {
+    high: active.filter(t => t.priority === 'high').length,
+    medium: active.filter(t => t.priority === 'medium').length,
+    low: active.filter(t => t.priority === 'low').length,
+  };
+  const inProgress = 0; // нет статуса "в процессе" в модели
+
   return (
-    <div style={{ maxWidth: 780 }}>
-      <button onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--on-surface-variant)', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 24, padding: 0, transition: 'color .2s' }}
-        onMouseEnter={e => e.currentTarget.style.color = 'var(--primary)'}
-        onMouseLeave={e => e.currentTarget.style.color = 'var(--on-surface-variant)'}>
-        <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><polyline stroke="currentColor" strokeWidth="2" points="15 18 9 12 15 6"/></svg>
+    <div style={{ maxWidth: 1080 }}>
+      <button onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 18, padding: 0 }}>
+        <svg width="15" height="15" fill="none" viewBox="0 0 24 24"><polyline stroke="currentColor" strokeWidth="2.5" points="15 18 9 12 15 6" /></svg>
         Назад к дашборду
       </button>
 
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ flex: 1 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 10 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           {editingTitle ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
               <input autoFocus value={titleValue} onChange={e => setTitleValue(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') handleTitleSave(); if (e.key === 'Escape') setEditingTitle(false); }}
-                style={{ fontSize: 36, fontWeight: 900, letterSpacing: '-0.03em', background: 'var(--surface-high)', border: '2px solid var(--primary)', borderRadius: 10, padding: '4px 12px', color: 'var(--on-surface)', outline: 'none', width: '100%' }}/>
-              <button onClick={handleTitleSave} style={{ background: 'var(--primary)', color: '#000', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 700, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>Сохранить</button>
-              <button onClick={() => setEditingTitle(false)} style={{ background: 'var(--surface-high)', color: 'var(--on-surface-variant)', border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>✕</button>
+                style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-0.02em', background: 'var(--surface)', border: '2px solid var(--primary)', borderRadius: 10, padding: '4px 12px', color: 'var(--text)', outline: 'none', width: '100%' }} />
+              <button onClick={handleTitleSave} style={{ background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontWeight: 700, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>Сохранить</button>
             </div>
           ) : (
-            <h1 style={{ fontSize: 40, fontWeight: 900, letterSpacing: '-0.03em', color: 'var(--on-surface)', marginBottom: 8 }}>{project.name}</h1>
+            <h1 style={{ fontSize: 32, fontWeight: 800, letterSpacing: '-0.025em', color: 'var(--text)', marginBottom: 8 }}>{project.name}</h1>
           )}
-          <p style={{ fontSize: 14, color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-            <svg width="14" height="14" fill="var(--primary)" viewBox="0 0 24 24" style={{ flexShrink: 0, marginTop: 2 }}><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-            <span>Режим фокуса активен.<br/>Осталось {activeTasks.filter(t=>!t.completed).length} активных задач.</span>
+          <p style={{ fontSize: 13.5, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <svg width="14" height="14" fill="var(--accent)" viewBox="0 0 24 24" style={{ flexShrink: 0 }}><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+            Режим фокуса активен. Осталось {active.length} активных задач.
           </p>
         </div>
 
         <div style={{ position: 'relative', flexShrink: 0 }}>
-          <button onClick={() => setMenuOpen(!menuOpen)} style={{ background: 'var(--surface-high)', border: 'none', borderRadius: 12, padding: 10, color: 'var(--on-surface-variant)', cursor: 'pointer', display: 'flex', transition: 'color .2s' }}
-            onMouseEnter={e => e.currentTarget.style.color = 'var(--primary)'}
-            onMouseLeave={e => e.currentTarget.style.color = 'var(--on-surface-variant)'}>
-            <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/></svg>
+          <button onClick={() => setMenuOpen(!menuOpen)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 9, color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex' }}>
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor" /><circle cx="12" cy="12" r="1.6" fill="currentColor" /><circle cx="19" cy="12" r="1.6" fill="currentColor" /></svg>
           </button>
           {menuOpen && (
             <>
-              <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 49 }}/>
-              <div style={{ position: 'absolute', top: '110%', right: 0, background: 'var(--surface-highest)', border: '1px solid var(--outline-variant)', borderRadius: 10, padding: 4, zIndex: 50, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
-                <button onClick={() => { setTitleValue(project.name); setEditingTitle(true); setMenuOpen(false); }} style={{
-                  display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 7,
-                  background: 'none', border: 'none', color: 'var(--on-surface)', fontSize: 14, cursor: 'pointer', width: '100%', textAlign: 'left',
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                  <svg width="15" height="15" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" strokeWidth="2" d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path stroke="currentColor" strokeWidth="2" d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                  Редактировать
-                </button>
-                <button onClick={() => { setMenuOpen(false); setDeleteConfirm(true); }} style={{
-                  display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 7,
-                  background: 'none', border: 'none', color: 'var(--error)', fontSize: 14, cursor: 'pointer', width: '100%', textAlign: 'left',
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,110,132,0.08)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                  <svg width="15" height="15" fill="none" viewBox="0 0 24 24"><polyline stroke="currentColor" strokeWidth="2" points="3 6 5 6 21 6"/><path stroke="currentColor" strokeWidth="2" d="M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/></svg>
+              <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 49 }} />
+              <div style={{ position: 'absolute', top: '110%', right: 0, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 4, zIndex: 50, minWidth: 180, boxShadow: 'var(--shadow-lg)' }}>
+                <MenuItem onClick={() => { setTitleValue(project.name); setEditingTitle(true); setMenuOpen(false); }}>
+                  <svg width="15" height="15" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" strokeWidth="2" d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path stroke="currentColor" strokeWidth="2" d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                  Переименовать
+                </MenuItem>
+                <MenuItem danger onClick={() => { setMenuOpen(false); setDeleteConfirm(true); }}>
+                  <svg width="15" height="15" fill="none" viewBox="0 0 24 24"><polyline stroke="currentColor" strokeWidth="2" points="3 6 5 6 21 6" /><path stroke="currentColor" strokeWidth="2" d="M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2" /></svg>
                   Удалить проект
-                </button>
+                </MenuItem>
               </div>
             </>
           )}
         </div>
       </div>
 
-      <div style={{ height: 5, background: 'rgba(255,255,255,0.08)', borderRadius: 999, overflow: 'hidden', marginBottom: 32 }}>
-        <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, var(--primary), var(--primary-dim))', borderRadius: 999, transition: 'width .5s ease', boxShadow: '0 0 12px rgba(186,158,255,0.5)' }}/>
+      <div style={{ height: 6, background: 'var(--surface-2)', borderRadius: 999, overflow: 'hidden', marginBottom: 26 }}>
+        <div style={{ height: '100%', width: `${pct}%`, background: 'var(--primary)', borderRadius: 999, transition: 'width .5s ease' }} />
       </div>
 
-      {/* Task input */}
-      <div style={{ position: 'relative', marginBottom: 32 }}>
-        <div style={{ position: 'absolute', inset: -4, background: 'linear-gradient(90deg, var(--primary), var(--primary-dim))', borderRadius: 18, opacity: 0.12, filter: 'blur(8px)', pointerEvents: 'none' }}/>
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 12, background: 'var(--surface-high)', borderRadius: 14, padding: '14px 20px', border: '1px solid rgba(255,255,255,0.05)', flexWrap: 'wrap' }}>
-          <svg width="22" height="22" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="#a27cff" strokeWidth="2"/><path stroke="#a27cff" strokeWidth="2" strokeLinecap="round" d="M12 8v8M8 12h8"/></svg>
-          <input value={newTask} onChange={e => setNewTask(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }}
-            placeholder={`Добавить задачу в ${project.name}...`}
-            style={{ background: 'none', border: 'none', outline: 'none', fontSize: 16, color: 'var(--on-surface)', flex: 1, minWidth: 120 }}/>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
-              style={{ background: 'var(--surface-bright)', border: '1px solid rgba(186,158,255,0.2)', color: 'var(--on-surface)', borderRadius: 8, padding: '6px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', outline: 'none' }}/>
-            <select value={priority} onChange={e => setPriority(e.target.value)} style={{
-              background: 'var(--surface-low)', border: 'none',
-              color: PRIO[priority].color,
-              borderRadius: 8, padding: '6px 28px 6px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', outline: 'none',
-            }}>
-              <option value="high">Высокий</option>
-              <option value="medium">Средний</option>
-              <option value="low">Низкий</option>
-            </select>
-            <button onClick={handleAdd} style={{ background: 'var(--primary)', color: '#000', border: 'none', padding: '8px 20px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'all .2s', whiteSpace: 'nowrap' }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--primary-dim)'; e.currentTarget.style.color = '#fff'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'var(--primary)'; e.currentTarget.style.color = '#000'; }}>
-              Создать
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Task List */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 48 }}>
-        {activeTasks.map((t, i) => (
-          <TaskItem key={t.id} task={t} index={i} tasks={activeTasks}
-            onToggle={onToggleTask}
-            onDelete={onSoftDeleteTask}
-            onUpdate={onUpdateTask}
-            onReorder={(reordered) => onReorderTasks(reordered)}/>
-        ))}
-        {activeTasks.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--on-surface-variant)' }}>
-            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Задач пока нет</div>
-            <div style={{ fontSize: 14 }}>Добавь первую задачу выше</div>
-          </div>
-        )}
-      </div>
-
-      {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16 }} className="proj-stats">
-        <div style={{ background: 'var(--surface-high)', borderRadius: 18, padding: 24 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--primary)', marginBottom: 16 }}>Эффективность</div>
-          <div style={{ fontSize: 42, fontWeight: 900, color: 'var(--on-surface)', lineHeight: 1, marginBottom: 4 }}>{pct}%</div>
-          <div style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Процент выполнения</div>
-        </div>
-        <div style={{ background: 'var(--surface-high)', borderRadius: 18, padding: 24, position: 'relative', overflow: 'hidden' }}>
-          <div style={{ position: 'absolute', top: -30, right: -30, width: 120, height: 120, background: 'rgba(104,252,191,0.08)', borderRadius: '50%', filter: 'blur(30px)' }}/>
-          <div style={{ position: 'relative', zIndex: 1 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--secondary)', marginBottom: 16 }}>Сессия фокуса</div>
-            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontSize: 42, fontWeight: 900, color: 'var(--on-surface)', lineHeight: 1, marginBottom: 4 }}>02:45</div>
-                <div style={{ fontSize: 12, color: 'var(--on-surface-variant)' }}>Текущая серия глубокой работы</div>
-              </div>
-              <button style={{ background: 'var(--secondary)', color: '#005e40', border: 'none', padding: '10px 24px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                Завершить сессию
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 28, alignItems: 'start' }} className="proj-grid">
+        {/* ==== Основная колонка ==== */}
+        <div>
+          {/* Добавление задачи */}
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 16, marginBottom: 20, boxShadow: 'var(--shadow-sm)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="var(--primary)" strokeWidth="2" /><path stroke="var(--primary)" strokeWidth="2" strokeLinecap="round" d="M12 8v8M8 12h8" /></svg>
+              <input value={newTask} onChange={e => setNewTask(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }}
+                placeholder={`Добавить задачу в «${project.name}»…`}
+                style={{ background: 'none', border: 'none', outline: 'none', fontSize: 15, color: 'var(--text)', flex: 1, minWidth: 0 }} />
+              <button onClick={handleAdd} style={{ background: 'var(--primary)', color: '#fff', border: 'none', padding: '9px 20px', borderRadius: 9, fontSize: 13.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'background .15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--primary-dim)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'var(--primary)'}>
+                Создать
               </button>
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', paddingLeft: 30 }}>
+              <DateQuickPick value={dueDate} onChange={setDueDate} />
+              <PrioritySelect value={priority} onChange={setPriority} />
+            </div>
           </div>
+
+          {/* Фильтры + сортировка (правка 6) */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+            <SegmentedControl options={FILTERS} value={filter} onChange={setFilter} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>Сортировка</span>
+              <SegmentedControl options={SORTS} value={sort} onChange={setSort} small />
+            </div>
+          </div>
+
+          <TaskList
+            active={active} done={done}
+            filter={filter} sort={sort}
+            showDone={showDone} setShowDone={setShowDone}
+            onToggleTask={onToggleTask} onOpenTask={onOpenTask}
+            onReorderTasks={onReorderTasks} allTasks={tasks}
+          />
+        </div>
+
+        {/* ==== Правая панель ==== */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }} className="proj-rail">
+          <RailCard title="Прогресс">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+              <Donut done={done.length} total={tasks.length} label={`${active.length}`} sub="активных" />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
+                <LegendRow color="var(--primary)" label="Выполнено" value={done.length} />
+                <LegendRow color="#93b4f5" label="В процессе" value={inProgress} />
+                <LegendRow color="var(--surface-2)" label="Осталось" value={active.length} border />
+              </div>
+            </div>
+          </RailCard>
+
+          <RailCard title="Приоритеты">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13.5 }}>
+              {['high', 'medium', 'low'].map(k => (
+                <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: prio(k).color }} />
+                  <span style={{ color: 'var(--text-secondary)' }}>{prio(k).label}</span>
+                  <span style={{ marginLeft: 'auto', fontWeight: 700, color: 'var(--text)' }}>{prioCounts[k]}</span>
+                </div>
+              ))}
+            </div>
+          </RailCard>
+
+          <RailCard title="Ближайшие дедлайны">
+            {(() => {
+              const upcoming = [...active].filter(t => t.dueDate).sort((a, b) => a.dueDate < b.dueDate ? -1 : 1).slice(0, 4);
+              if (upcoming.length === 0) return <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Нет задач с датой</div>;
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+                  {upcoming.map(t => (
+                    <div key={t.id} onClick={() => onOpenTask(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                      <CalIcon size={12} color="var(--text-muted)" />
+                      <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{t.name}</span>
+                      <span style={{ fontWeight: 600, color: dueTone(t.dueDate, false), whiteSpace: 'nowrap' }}>{humanDate(t.dueDate)}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </RailCard>
         </div>
       </div>
+
+      {deleteConfirm && (
+        <ConfirmDelete name={project.name} onCancel={() => setDeleteConfirm(false)}
+          onConfirm={() => { setDeleteConfirm(false); onDeleteProject(project.id); }} />
+      )}
 
       <style jsx global>{`
-        @media (max-width: 600px) { .proj-stats { grid-template-columns: 1fr !important; } }
+        @media (max-width: 900px) {
+          .proj-grid { grid-template-columns: 1fr !important; }
+          .proj-rail { flex-direction: row !important; flex-wrap: wrap !important; }
+          .proj-rail > * { flex: 1 1 220px; }
+        }
       `}</style>
+    </div>
+  );
+}
 
-      {/* Модал подтверждения удаления проекта */}
-      {deleteConfirm && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)',
-          zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-        }} onClick={e => { if (e.target === e.currentTarget) setDeleteConfirm(false); }}>
-          <div style={{
-            background: 'var(--surface-high)', borderRadius: 20, padding: 32, width: '100%', maxWidth: 400,
-            border: '1px solid rgba(255,110,132,0.2)', boxShadow: '0 24px 60px rgba(0,0,0,0.6)',
-          }}>
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 10 }}>
-                Удалить проект «{project.name}»?
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--on-surface-variant)', lineHeight: 1.6 }}>
-                Все задачи прикреплённые к этому проекту будут удалены без возможности восстановить.
-              </div>
+/* ===== Список задач с группировкой ===== */
+function TaskList({ active, done, filter, sort, showDone, setShowDone, onToggleTask, onOpenTask, onReorderTasks, allTasks }) {
+  // фильтр «Выполненные»
+  if (filter === 'done') {
+    if (done.length === 0) return <Empty text="Выполненных задач пока нет" />;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {sortTasks(done, sort === 'manual' ? 'manual' : sort).map(t => (
+          <TaskRow key={t.id} task={t} onToggle={onToggleTask} onOpen={onOpenTask} />
+        ))}
+      </div>
+    );
+  }
+
+  // Вручную — плоский перетаскиваемый список активных с живым превью
+  if (sort === 'manual') {
+    const ordered = sortTasks(active, 'manual');
+    if (ordered.length === 0 && !(filter === 'all' && done.length)) return <Empty text="Задач пока нет — добавь первую выше" />;
+    return (
+      <div>
+        <SortableList items={ordered} onReorder={onReorderTasks}
+          renderRow={(t, { dragging, handleProps }) => (
+            <TaskRow task={t} dragging={dragging} handleProps={handleProps} onToggle={onToggleTask} onOpen={onOpenTask} />
+          )} />
+        {filter === 'all' && done.length > 0 && (
+          <DoneBlock done={done} sort={sort} showDone={showDone} setShowDone={setShowDone} onToggle={onToggleTask} onOpen={onOpenTask} />
+        )}
+      </div>
+    );
+  }
+
+  // Группировка: Просрочено / Сегодня / Предстоящие / Без даты
+  const groups = groupTasks(active);
+  const order = ['overdue', 'today', 'upcoming', 'nodate'];
+  const anyActive = order.some(k => groups[k].length);
+  if (!anyActive && !(filter === 'all' && done.length)) return <Empty text="Задач пока нет — добавь первую выше" />;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+      {order.map(key => {
+        const items = sortTasks(groups[key], sort);
+        if (items.length === 0) return null;
+        const meta = GROUP_META[key];
+        return (
+          <div key={key}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: meta.color }} />
+              <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: meta.color }}>{meta.label}</span>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)' }}>{items.length}</span>
             </div>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <button onClick={() => setDeleteConfirm(false)} style={{
-                flex: 1, background: 'var(--surface-low)', color: 'var(--on-surface-variant)',
-                border: 'none', borderRadius: 12, padding: '13px', fontSize: 14, fontWeight: 600, cursor: 'pointer', transition: 'background .2s',
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-bright)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'var(--surface-low)'}>
-                Отмена
-              </button>
-              <button onClick={() => { setDeleteConfirm(false); onDeleteProject(project.id); }} style={{
-                flex: 1, background: 'rgba(255,110,132,0.15)', color: 'var(--error)',
-                border: '1px solid rgba(255,110,132,0.3)', borderRadius: 12, padding: '13px', fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all .2s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,110,132,0.25)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,110,132,0.15)'; }}>
-                Удалить
-              </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {items.map(t => <TaskRow key={t.id} task={t} onToggle={onToggleTask} onOpen={onOpenTask} />)}
             </div>
           </div>
+        );
+      })}
+
+      {filter === 'all' && done.length > 0 && (
+        <DoneBlock done={done} sort={sort} showDone={showDone} setShowDone={setShowDone} onToggle={onToggleTask} onOpen={onOpenTask} />
+      )}
+    </div>
+  );
+}
+
+function DoneBlock({ done, sort, showDone, setShowDone, onToggle, onOpen }) {
+  return (
+    <div>
+      <button onClick={() => setShowDone(v => !v)} style={{
+        display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: 10,
+      }}>
+        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" style={{ transform: showDone ? 'rotate(90deg)' : 'none', transition: 'transform .15s', color: 'var(--text-muted)' }}>
+          <polyline stroke="currentColor" strokeWidth="2.5" points="9 6 15 12 9 18" />
+        </svg>
+        <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--success)' }}>Выполненные</span>
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--text-muted)' }}>{done.length}</span>
+      </button>
+      {showDone && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {sortTasks(done, sort === 'manual' ? 'manual' : sort).map(t => (
+            <TaskRow key={t.id} task={t} onToggle={onToggle} onOpen={onOpen} />
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-function TaskItem({ task, index, tasks, onToggle, onDelete, onUpdate, onReorder }) {
-  const [hovered, setHovered] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [editName, setEditName] = useState(task.name);
-  const [editPriority, setEditPriority] = useState(task.priority);
-  const [editDate, setEditDate] = useState(task.dueDate || '');
-  const p = PRIO[task.priority] || PRIO.low;
+/* ===== Перетаскиваемый список с живым превью + FLIP-анимация ===== */
+function SortableList({ items, onReorder, renderRow }) {
+  const [list, setList] = useState(items);
+  const [dragId, setDragId] = useState(null);
+  const containerRef = useRef(null);
+  const listRef = useRef(list);
+  const dragIdRef = useRef(null);
+  const dirty = useRef(false);
+  const suppressClick = useRef(false);
+  const rowEls = useRef(new Map());       // id -> DOM el
+  const prevTops = useRef(new Map());     // id -> top (px) до перестановки
+  listRef.current = list;
 
-  const handleSave = () => {
-    onUpdate({ ...task, name: editName.trim() || task.name, priority: editPriority, dueDate: editDate || null });
-    setEditing(false);
+  // подтягиваем внешние изменения только когда сами не тащим
+  useEffect(() => { if (!dragIdRef.current) setList(items); }, [items]);
+
+  // FLIP: плавно доводим строки на новые места после каждой перестановки
+  useLayoutEffect(() => {
+    if (!dragIdRef.current || prevTops.current.size === 0) return;
+    rowEls.current.forEach((el, id) => {
+      if (!el) return;
+      const prev = prevTops.current.get(id);
+      const now = el.getBoundingClientRect().top;
+      if (prev == null) return;
+      const dy = prev - now;
+      if (id === dragIdRef.current || !dy) { el.style.transition = 'none'; el.style.transform = ''; return; }
+      el.style.transition = 'none';
+      el.style.transform = `translateY(${dy}px)`;
+      requestAnimationFrame(() => {
+        el.style.transition = 'transform .22s cubic-bezier(.2,.7,.2,1)';
+        el.style.transform = '';
+      });
+    });
+    prevTops.current.clear();
+  });
+
+  const captureTops = () => {
+    const m = new Map();
+    rowEls.current.forEach((el, id) => { if (el) m.set(id, el.getBoundingClientRect().top); });
+    prevTops.current = m;
   };
 
-  const handleDragStart = (e) => { e.dataTransfer.setData('taskIndex', index); };
-  const handleDragOver = (e) => { e.preventDefault(); };
-  const handleDrop = (e) => {
+  const reorderTo = (targetIndex) => {
+    const from = listRef.current.findIndex(t => t.id === dragIdRef.current);
+    const to = Math.max(0, Math.min(targetIndex, listRef.current.length - 1));
+    if (from === -1 || from === to) return;
+    captureTops();
+    setList(prev => {
+      const f = prev.findIndex(t => t.id === dragIdRef.current);
+      if (f === -1 || f === to) return prev;
+      const copy = [...prev];
+      const [m] = copy.splice(f, 1);
+      copy.splice(to, 0, m);
+      dirty.current = true;
+      listRef.current = copy;
+      return copy;
+    });
+  };
+
+  const onMove = (ev) => {
+    if (!dragIdRef.current || !containerRef.current) return;
+    const y = ev.clientY;
+    const rows = [...containerRef.current.children];
+    let target = rows.findIndex(r => {
+      const rect = r.getBoundingClientRect();
+      return y < rect.top + rect.height / 2;
+    });
+    if (target === -1) target = rows.length - 1;
+    reorderTo(target);
+  };
+
+  const onUp = () => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+    prevTops.current.clear();
+    rowEls.current.forEach(el => { if (el) { el.style.transition = ''; el.style.transform = ''; } });
+    if (dirty.current) {
+      onReorder(listRef.current);
+      suppressClick.current = true;
+      setTimeout(() => { suppressClick.current = false; }, 60);
+    }
+    dirty.current = false;
+    dragIdRef.current = null;
+    setDragId(null);
+  };
+
+  const startDrag = (e, id) => {
+    if (e.button != null && e.button !== 0) return;
     e.preventDefault();
-    const from = parseInt(e.dataTransfer.getData('taskIndex'));
-    if (from === index) return;
-    const reordered = [...tasks];
-    const [moved] = reordered.splice(from, 1);
-    reordered.splice(index, 0, moved);
-    onReorder(reordered);
+    e.stopPropagation();
+    dragIdRef.current = id;
+    setDragId(id);
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'grabbing';
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
   };
-
-  if (editing) {
-    return (
-      <div style={{ background: 'var(--surface-high)', borderRadius: 14, padding: 20, border: '1px solid var(--primary)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <input autoFocus value={editName} onChange={e => setEditName(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setEditing(false); }}
-          style={{ background: 'var(--surface-low)', border: '1px solid var(--outline-variant)', borderRadius: 8, padding: '10px 14px', fontSize: 15, color: 'var(--on-surface)', outline: 'none' }}/>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <select value={editPriority} onChange={e => setEditPriority(e.target.value)} style={{ flex: 1, background: 'var(--surface-bright)', border: '1px solid rgba(186,158,255,0.25)', borderRadius: 8, padding: '8px 28px 8px 10px', fontSize: 13, color: 'var(--on-surface)', outline: 'none', cursor: 'pointer' }}>
-            <option value="high">Высокий</option>
-            <option value="medium">Средний</option>
-            <option value="low">Низкий</option>
-          </select>
-          <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
-            style={{ flex: 1, background: 'var(--surface-bright)', border: '1px solid rgba(186,158,255,0.25)', borderRadius: 8, padding: '8px 28px 8px 10px', fontSize: 13, color: 'var(--on-surface)', outline: 'none', cursor: 'pointer' }}/>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={handleSave} style={{ flex: 1, background: 'var(--primary)', color: '#000', border: 'none', borderRadius: 8, padding: '9px', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Сохранить</button>
-          <button onClick={() => setEditing(false)} style={{ flex: 1, background: 'var(--surface-low)', color: 'var(--on-surface-variant)', border: 'none', borderRadius: 8, padding: '9px', fontSize: 13, cursor: 'pointer' }}>Отмена</button>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div draggable onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop}
-      onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {list.map(t => (
+        <div key={t.id}
+          ref={(el) => { if (el) rowEls.current.set(t.id, el); else rowEls.current.delete(t.id); }}
+          onClickCapture={(e) => { if (suppressClick.current) { e.stopPropagation(); e.preventDefault(); } }}
+          style={{ willChange: dragId ? 'transform' : 'auto' }}>
+          {renderRow(t, {
+            dragging: t.id === dragId,
+            handleProps: { onPointerDown: (e) => startDrag(e, t.id) },
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ===== Строка задачи ===== */
+function TaskRow({ task, onToggle, onOpen, dragging, handleProps }) {
+  const [hover, setHover] = useState(false);
+
+  return (
+    <div
+      onClick={() => { if (!dragging) onOpen(task.id); }}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       style={{
         display: 'flex', alignItems: 'center', gap: 12,
-        background: hovered ? 'var(--surface-bright)' : 'var(--surface-high)',
-        borderRadius: 14, padding: 20, transition: 'background .2s',
-        opacity: task.completed ? 0.65 : 1,
+        background: dragging ? 'var(--primary-soft)' : hover ? 'var(--surface-hover)' : 'var(--surface)',
+        border: '1px solid', borderRadius: 12, padding: '13px 16px',
+        cursor: 'pointer', transition: 'background .12s, border-color .12s, box-shadow .12s, transform .12s',
+        borderColor: dragging ? 'var(--primary)' : hover ? 'var(--border-strong)' : 'var(--border)',
+        boxShadow: dragging ? 'var(--shadow-lg)' : 'none',
+        transform: dragging ? 'scale(1.015)' : 'none',
+        opacity: task.completed && !dragging ? 0.72 : 1,
+        position: 'relative', zIndex: dragging ? 5 : 'auto',
       }}>
-      <div style={{ cursor: 'grab', color: 'var(--outline)', opacity: hovered ? 0.6 : 0.2, transition: 'opacity .2s', flexShrink: 0 }}>
-        <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor">
-          <circle cx="2" cy="3" r="1.5"/><circle cx="8" cy="3" r="1.5"/>
-          <circle cx="2" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/>
-          <circle cx="2" cy="13" r="1.5"/><circle cx="8" cy="13" r="1.5"/>
-        </svg>
-      </div>
-
-      <button onClick={(e) => { if (!task.completed) triggerConfetti(e.currentTarget); onToggle(task.id); }} style={{
-        width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
-        border: `2px solid ${task.completed ? 'var(--secondary)' : task.priority === 'high' ? '#ff6e84' : 'var(--outline-variant)'}`,
-        background: task.completed ? 'var(--secondary)' : 'none',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        cursor: 'pointer', padding: 0, transition: 'all .2s',
-      }}>
-        {task.completed && <svg width="12" height="12" fill="none" viewBox="0 0 24 24"><polyline stroke="#005e40" strokeWidth="3" points="20 6 9 17 4 12"/></svg>}
-      </button>
-
+      {handleProps && (
+        <span
+          {...handleProps}
+          onClick={e => e.stopPropagation()}
+          title="Перетащите, чтобы изменить порядок"
+          style={{
+            cursor: 'grab', color: 'var(--text-muted)', opacity: hover || dragging ? 0.9 : 0.45,
+            flexShrink: 0, display: 'flex', alignItems: 'center', touchAction: 'none',
+            padding: '12px 8px', margin: '-12px -6px -12px -6px',
+          }}>
+          <svg width="11" height="17" viewBox="0 0 10 16" fill="currentColor"><circle cx="2" cy="3" r="1.6" /><circle cx="8" cy="3" r="1.6" /><circle cx="2" cy="8" r="1.6" /><circle cx="8" cy="8" r="1.6" /><circle cx="2" cy="13" r="1.6" /><circle cx="8" cy="13" r="1.6" /></svg>
+        </span>
+      )}
+      <TaskCheckbox completed={task.completed} onToggle={() => onToggle(task.id)} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 16, fontWeight: 600, color: task.completed ? 'var(--outline)' : 'var(--on-surface)', textDecoration: task.completed ? 'line-through' : 'none', marginBottom: 6 }}>
+        <div style={{ fontSize: 15, fontWeight: 500, color: task.completed ? 'var(--text-muted)' : 'var(--text)', textDecoration: task.completed ? 'line-through' : 'none', marginBottom: task.completed || task.dueDate || true ? 5 : 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {task.name}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', background: p.bg, color: p.color }}>
-            {p.label}
-          </span>
+          <PriorityBadge value={task.priority} />
           {task.completed ? (
-            <span style={{ fontSize: 12, color: 'var(--secondary)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-              <svg width="11" height="11" fill="none" viewBox="0 0 24 24"><polyline stroke="currentColor" strokeWidth="2" points="20 6 9 17 4 12"/></svg>
+            <span style={{ fontSize: 12, color: 'var(--success)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <svg width="11" height="11" fill="none" viewBox="0 0 24 24"><polyline stroke="currentColor" strokeWidth="2.5" points="20 6 9 17 4 12" /></svg>
               Выполнено
             </span>
           ) : task.dueDate ? (
-            <span style={{ fontSize: 13, color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <svg width="11" height="11" fill="none" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="2"/><path stroke="currentColor" strokeWidth="2" d="M3 10h18"/></svg>
-              {formatDate(task.dueDate)}
+            <span style={{ fontSize: 12.5, color: dueTone(task.dueDate, false), display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500 }}>
+              <CalIcon size={11} />{humanDate(task.dueDate)}
             </span>
+          ) : null}
+          {task.note ? (
+            <svg width="13" height="13" fill="none" viewBox="0 0 24 24" style={{ color: 'var(--text-muted)' }}><path stroke="currentColor" strokeWidth="2" d="M4 6h16M4 12h16M4 18h10" /></svg>
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
 
-      {hovered && (
-        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-          <button onClick={() => { setEditName(task.name); setEditPriority(task.priority); setEditDate(task.dueDate || ''); setEditing(true); }}
-            style={{ background: 'none', border: 'none', color: 'var(--outline)', cursor: 'pointer', padding: 8, borderRadius: 8, display: 'flex', transition: 'color .2s' }}
-            onMouseEnter={e => e.currentTarget.style.color = 'var(--on-surface)'}
-            onMouseLeave={e => e.currentTarget.style.color = 'var(--outline)'}>
-            <svg width="17" height="17" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" strokeWidth="2" d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path stroke="currentColor" strokeWidth="2" d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          </button>
-          <button onClick={() => onDelete(task.id)}
-            style={{ background: 'none', border: 'none', color: 'var(--outline)', cursor: 'pointer', padding: 8, borderRadius: 8, display: 'flex', transition: 'color .2s' }}
-            onMouseEnter={e => e.currentTarget.style.color = 'var(--error)'}
-            onMouseLeave={e => e.currentTarget.style.color = 'var(--outline)'}>
-            <svg width="17" height="17" fill="none" viewBox="0 0 24 24"><polyline stroke="currentColor" strokeWidth="2" points="3 6 5 6 21 6"/><path stroke="currentColor" strokeWidth="2" d="M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/></svg>
-          </button>
+/* ===== Вспомогательные ===== */
+function SegmentedControl({ options, value, onChange, small }) {
+  return (
+    <div style={{ display: 'inline-flex', background: 'var(--surface-2)', borderRadius: 9, padding: 3, gap: 2 }}>
+      {options.map(o => {
+        const active = value === o.key;
+        return (
+          <button key={o.key} onClick={() => onChange(o.key)} style={{
+            padding: small ? '5px 10px' : '6px 13px', borderRadius: 7, border: 'none',
+            fontSize: small ? 12 : 12.5, fontWeight: 600, cursor: 'pointer',
+            background: active ? 'var(--surface)' : 'none',
+            color: active ? 'var(--text)' : 'var(--text-secondary)',
+            boxShadow: active ? 'var(--shadow-sm)' : 'none', transition: 'all .12s',
+          }}>{o.label}</button>
+        );
+      })}
+    </div>
+  );
+}
+
+function RailCard({ title, children }) {
+  return (
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 18, boxShadow: 'var(--shadow-sm)' }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 14 }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function LegendRow({ color, label, value, border }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ width: 9, height: 9, borderRadius: 3, background: color, border: border ? '1px solid var(--border-strong)' : 'none', flexShrink: 0 }} />
+      <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
+      <span style={{ marginLeft: 'auto', fontWeight: 700, color: 'var(--text)' }}>{value}</span>
+    </div>
+  );
+}
+
+function Donut({ done, total, label, sub }) {
+  const size = 92, stroke = 11, r = (size - stroke) / 2, c = 2 * Math.PI * r;
+  const pct = total ? done / total : 0;
+  return (
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--surface-2)" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--primary)" strokeWidth={stroke}
+          strokeDasharray={c} strokeDashoffset={c * (1 - pct)} strokeLinecap="round" style={{ transition: 'stroke-dashoffset .5s ease' }} />
+      </svg>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ fontSize: 20, fontWeight: 800, color: 'var(--text)', lineHeight: 1 }}>{label}</span>
+        <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>{sub}</span>
+      </div>
+    </div>
+  );
+}
+
+function MenuItem({ children, onClick, danger }) {
+  return (
+    <button onClick={onClick} style={{
+      display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 7,
+      background: 'none', border: 'none', color: danger ? 'var(--danger)' : 'var(--text)',
+      fontSize: 13.5, cursor: 'pointer', width: '100%', textAlign: 'left',
+    }}
+      onMouseEnter={e => e.currentTarget.style.background = danger ? 'var(--danger-soft)' : 'var(--surface-2)'}
+      onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+      {children}
+    </button>
+  );
+}
+
+function Empty({ text }) {
+  return (
+    <div style={{ background: 'var(--surface)', border: '1px dashed var(--border-strong)', borderRadius: 14, textAlign: 'center', padding: '44px 20px', color: 'var(--text-secondary)', fontSize: 14 }}>
+      {text}
+    </div>
+  );
+}
+
+function ConfirmDelete({ name, onCancel, onConfirm }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(16,24,40,0.45)', backdropFilter: 'blur(2px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={e => { if (e.target === e.currentTarget) onCancel(); }}>
+      <div style={{ background: 'var(--surface)', borderRadius: 16, padding: 26, width: '100%', maxWidth: 400, boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>Удалить проект «{name}»?</div>
+        <div style={{ fontSize: 13.5, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 20 }}>
+          Все задачи этого проекта будут удалены без возможности восстановления.
         </div>
-      )}
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={onCancel} style={{ flex: 1, background: 'var(--surface-2)', color: 'var(--text-secondary)', border: 'none', borderRadius: 10, padding: '11px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Отмена</button>
+          <button onClick={onConfirm} style={{ flex: 1, background: 'var(--danger)', color: '#fff', border: 'none', borderRadius: 10, padding: '11px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Удалить</button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,198 +1,94 @@
 'use client';
-
-// Конфетти + звук
-function triggerConfetti(element) {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const playNote = (freq, start, duration) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.frequency.value = freq; osc.type = 'sine';
-      gain.gain.setValueAtTime(0, ctx.currentTime + start);
-      gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + start + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration);
-      osc.start(ctx.currentTime + start);
-      osc.stop(ctx.currentTime + start + duration);
-    };
-    playNote(523, 0, 0.15); playNote(659, 0.15, 0.15);
-    playNote(784, 0.3, 0.15); playNote(1047, 0.45, 0.3);
-  } catch(e) {}
-  const rect = element ? element.getBoundingClientRect() : { left: window.innerWidth/2, top: window.innerHeight/2, width: 0, height: 0 };
-  const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
-  const colors = ['#ba9eff','#68fcbf','#699cff','#ff6e84','#ffd166','#fff'];
-  const container = document.createElement('div');
-  container.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;overflow:hidden;';
-  document.body.appendChild(container);
-  for (let i = 0; i < 40; i++) {
-    const p = document.createElement('div');
-    const color = colors[Math.floor(Math.random()*colors.length)];
-    const size = Math.random()*8+4;
-    const angle = Math.random()*360*(Math.PI/180);
-    const vel = Math.random()*200+80;
-    const vx = Math.cos(angle)*vel, vy = Math.sin(angle)*vel-120;
-    p.style.cssText = `position:fixed;left:${cx}px;top:${cy}px;width:${size}px;height:${size}px;background:${color};border-radius:${Math.random()>.5?'50%':'2px'};pointer-events:none;transform:translate(-50%,-50%);`;
-    container.appendChild(p);
-    let t0 = null; const dur = 900+Math.random()*400;
-    const anim = (ts) => {
-      if (!t0) t0 = ts;
-      const prog = (ts-t0)/dur;
-      if (prog >= 1) { p.remove(); return; }
-      p.style.left = (cx+vx*prog)+'px';
-      p.style.top = (cy+vy*prog+300*prog*prog)+'px';
-      p.style.opacity = 1-prog;
-      p.style.transform = `translate(-50%,-50%) rotate(${prog*360}deg)`;
-      requestAnimationFrame(anim);
-    };
-    requestAnimationFrame(anim);
-  }
-  setTimeout(()=>container.remove(), 1500);
-}
-
+import { useState } from 'react';
 import { today } from '../lib/store';
+import { TaskCheckbox, PriorityBadge } from './common';
+import { humanDate, dueTone, projectColor } from '../lib/ui';
 
-const COLORS = ['#ba9eff','#68fcbf','#699cff','#ff6e84','#ffd166','#f77f00'];
-
-export default function UpcomingView({ tasks, projects, onToggleTask }) {
+export default function UpcomingView({ tasks, projects, onToggleTask, onOpenTask }) {
   const todayStr = today();
 
-  // Собираем задачи на ближайшие 7 дней
   const days = [];
-  for (let i = 1; i <= 7; i++) {
+  for (let i = 1; i <= 14; i++) {
     const d = new Date();
     d.setDate(d.getDate() + i);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    const dateStr = `${year}-${month}-${day}`;
-    const label = i === 1 ? 'Завтра' : i === 2 ? 'Послезавтра' : d.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
-    const dayTasks = tasks.filter(t => t.dueDate === dateStr);
-    if (dayTasks.length > 0) days.push({ dateStr, label, tasks: dayTasks });
+    const dateStr = d.toISOString().slice(0, 10);
+    const dayTasks = tasks.filter(t => t.dueDate === dateStr && !t.completed);
+    if (dayTasks.length > 0) {
+      const label = i === 1 ? 'Завтра' : d.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+      days.push({ dateStr, label, tasks: dayTasks });
+    }
   }
-
-  // Также задачи без даты или просроченные
-  const overdue = tasks.filter(t => !t.completed && t.dueDate && t.dueDate < todayStr);
-
-  const PRIO = {
-    high:   { label: 'Высокий', color: '#ff6e84', bg: 'rgba(255,110,132,0.12)' },
-    medium: { label: 'Средний', color: '#68fcbf', bg: 'rgba(104,252,191,0.12)' },
-    low:    { label: 'Низкий',  color: '#699cff', bg: 'rgba(105,156,255,0.12)' },
-  };
-
-  const totalUpcoming = days.reduce((acc, d) => acc + d.tasks.length, 0);
-  const doneUpcoming = days.reduce((acc, d) => acc + d.tasks.filter(t=>t.completed).length, 0);
-  const pct = totalUpcoming ? Math.round(doneUpcoming / totalUpcoming * 100) : 0;
+  const overdue = tasks
+    .filter(t => !t.completed && t.dueDate && t.dueDate < todayStr)
+    .sort((a, b) => a.dueDate < b.dueDate ? -1 : 1);
+  const total = days.reduce((n, d) => n + d.tasks.length, 0) + overdue.length;
 
   return (
-    <div>
-      <h1 style={{ fontSize: 38, fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 8 }}>Предстоящее</h1>
-      <p style={{ fontSize: 15, color: 'var(--on-surface-variant)', marginBottom: 40 }}>
-        Задачи на ближайшие 7 дней.
-      </p>
+    <div style={{ maxWidth: 760 }}>
+      <h1 style={{ fontSize: 34, fontWeight: 800, letterSpacing: '-0.025em', marginBottom: 6, color: 'var(--text)' }}>Предстоящее</h1>
+      <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginBottom: 24 }}>Задачи на ближайшие две недели.</p>
 
-      {overdue.length === 0 && days.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--on-surface-variant)' }}>
-          <svg width="48" height="48" fill="none" viewBox="0 0 24 24" style={{ margin: '0 auto 16px', display: 'block', opacity: 0.3 }}>
-            <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.5"/>
-            <path stroke="currentColor" strokeWidth="1.5" d="M16 2v4M8 2v4M3 10h18M8 14h8M8 18h5"/>
-          </svg>
-          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Предстоящих задач нет</div>
-          <div style={{ fontSize: 14 }}>Добавь задачи с датой через кнопку +</div>
+      {total === 0 ? (
+        <div style={{ background: 'var(--surface)', border: '1px dashed var(--border-strong)', borderRadius: 14, textAlign: 'center', padding: '64px 20px', color: 'var(--text-secondary)' }}>
+          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, color: 'var(--text)' }}>Предстоящих задач нет</div>
+          <div style={{ fontSize: 13.5 }}>Добавь задачи с датой через кнопку +</div>
         </div>
       ) : (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 24, marginBottom: 32 }} className="upcoming-grid">
-            {/* Left — progress */}
-            <div style={{ background: 'var(--surface-high)', borderRadius: 16, padding: 28, display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <svg width="28" height="28" fill="none" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" stroke="#699cff" strokeWidth="2"/><path stroke="#699cff" strokeWidth="2" d="M16 2v4M8 2v4M3 10h18M8 14h8M8 18h5"/></svg>
-                <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', background: 'rgba(105,156,255,0.12)', padding: '3px 10px', borderRadius: 999, color: 'var(--tertiary)' }}>7 ДНЕЙ</span>
-              </div>
-              <div style={{ marginTop: 'auto' }}>
-                <div style={{ fontSize: 52, fontWeight: 900, color: '#fff', lineHeight: 1, marginBottom: 6 }}>{totalUpcoming}</div>
-                <div style={{ fontSize: 13, color: 'var(--on-surface-variant)', marginBottom: 20 }}>Задач запланировано</div>
-                <div style={{ height: 6, background: 'rgba(255,255,255,0.08)', borderRadius: 999, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${pct}%`, background: 'var(--tertiary)', borderRadius: 999, boxShadow: '0 0 10px rgba(105,156,255,0.5)', transition: 'width .5s ease' }}/>
-                </div>
-              </div>
-            </div>
-
-            {/* Right — tasks grouped by day */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-              {overdue.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--error-dim)', marginBottom: 10 }}>
-                    ⚠ Просроченные
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {overdue.map(t => <UpcomingTask key={t.id} task={t} projects={projects} PRIO={PRIO} onToggle={onToggleTask}/>)}
-                  </div>
-                </div>
-              )}
-              {days.map(day => (
-                <div key={day.dateStr}>
-                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--on-surface-variant)', marginBottom: 10 }}>
-                    {day.label}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {day.tasks.map(t => <UpcomingTask key={t.id} task={t} projects={projects} PRIO={PRIO} onToggle={onToggleTask}/>)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Focus block */}
-          <div style={{ background: 'var(--surface-high)', borderRadius: 16, padding: '24px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
-            <div>
-              <div style={{ fontSize: 17, fontWeight: 700, color: '#fff', marginBottom: 6 }}>Фокус на главном</div>
-              <div style={{ fontSize: 14, color: 'var(--on-surface-variant)', maxWidth: 400 }}>
-                На ближайшую неделю запланировано {totalUpcoming} задач. Самое время начать с наиболее приоритетных.
-              </div>
-            </div>
-            <button style={{ background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-dim) 100%)', color: '#000', border: 'none', padding: '12px 28px', borderRadius: 999, fontSize: 14, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'filter .2s' }}
-              onMouseEnter={e => e.currentTarget.style.filter = 'brightness(1.1)'}
-              onMouseLeave={e => e.currentTarget.style.filter = 'none'}>
-              Старт сессии
-            </button>
-          </div>
-        </>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+          {overdue.length > 0 && (
+            <DayGroup label="Просрочено" color="var(--danger)">
+              {overdue.map(t => <Row key={t.id} task={t} projects={projects} onToggle={onToggleTask} onOpen={onOpenTask} showDate />)}
+            </DayGroup>
+          )}
+          {days.map(day => (
+            <DayGroup key={day.dateStr} label={day.label} color="var(--text-secondary)">
+              {day.tasks.map(t => <Row key={t.id} task={t} projects={projects} onToggle={onToggleTask} onOpen={onOpenTask} />)}
+            </DayGroup>
+          ))}
+        </div>
       )}
-
-      <style jsx global>{`
-        @media (max-width: 768px) {
-          .upcoming-grid { grid-template-columns: 1fr !important; }
-        }
-      `}</style>
     </div>
   );
 }
 
-function UpcomingTask({ task, projects, PRIO, onToggle }) {
-  const proj = projects.find(p => p.id === task.projectId);
-  const p = PRIO[task.priority] || PRIO.low;
+function DayGroup({ label, color, children }) {
   return (
-    <div style={{
-      background: 'var(--surface-high)', borderRadius: 14, padding: '14px 20px',
-      display: 'flex', alignItems: 'center', gap: 16, transition: 'background .2s',
-      opacity: task.completed ? 0.6 : 1,
-    }}
-    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-bright)'}
-    onMouseLeave={e => e.currentTarget.style.background = 'var(--surface-high)'}>
-      <button onClick={(e) => { if (!task.completed) triggerConfetti(e.currentTarget); onToggle(task.id); }} style={{
-        width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
-        border: `2px solid ${task.completed ? 'var(--secondary)' : 'var(--outline-variant)'}`,
-        background: task.completed ? 'var(--secondary)' : 'none',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, transition: 'all .2s',
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: color }} />
+        <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color }}>{label}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{children}</div>
+    </div>
+  );
+}
+
+function Row({ task, projects, onToggle, onOpen, showDate }) {
+  const [hover, setHover] = useState(false);
+  const pi = projects.findIndex(p => p.id === task.projectId);
+  const proj = projects[pi];
+  return (
+    <div onClick={() => onOpen(task.id)}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        background: hover ? 'var(--surface-hover)' : 'var(--surface)',
+        border: '1px solid', borderColor: hover ? 'var(--border-strong)' : 'var(--border)',
+        borderRadius: 12, padding: '13px 16px', cursor: 'pointer', transition: 'all .12s',
       }}>
-        {task.completed && <svg width="11" height="11" fill="none" viewBox="0 0 24 24"><polyline stroke="#005e40" strokeWidth="3" points="20 6 9 17 4 12"/></svg>}
-      </button>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 15, fontWeight: 600, color: task.completed ? 'var(--outline)' : 'var(--on-surface)', textDecoration: task.completed ? 'line-through' : 'none', marginBottom: 4 }}>{task.name}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {proj && <span style={{ fontSize: 11, color: 'var(--outline)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{proj.name}</span>}
-          <span style={{ fontSize: 11, color: 'var(--outline)' }}>·</span>
-          <span style={{ padding: '2px 7px', borderRadius: 4, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', background: p.bg, color: p.color }}>{p.label}</span>
+      <TaskCheckbox completed={task.completed} onToggle={() => onToggle(task.id)} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text)', marginBottom: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.name}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+          {proj && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text-secondary)' }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: projectColor(pi) }} />{proj.name}
+            </span>
+          )}
+          <PriorityBadge value={task.priority} />
+          {showDate && task.dueDate && (
+            <span style={{ fontSize: 12.5, color: dueTone(task.dueDate, false), fontWeight: 500 }}>{humanDate(task.dueDate)}</span>
+          )}
         </div>
       </div>
     </div>
