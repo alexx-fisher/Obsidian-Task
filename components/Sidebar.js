@@ -51,8 +51,8 @@ export default function Sidebar({ projects, activeProjectId, activeScreen, onPro
         overflowY: 'auto', zIndex: 40,
       }}>
         <div style={{ padding: '0 8px', marginBottom: 22 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Проекты</div>
-          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1 }}>Рабочее пространство</div>
+          <div style={{ fontSize: 19, fontWeight: 800, letterSpacing: '-0.01em', color: 'var(--text)' }}>Проекты</div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>Рабочее пространство</div>
         </div>
 
         <nav style={{ flex: 1 }}>

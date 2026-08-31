@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { today } from '../lib/store';
 import { TaskCheckbox, PriorityBadge, PrioritySelect, DateQuickPick, CalIcon } from './common';
 import { prio, groupTasks, GROUP_META, sortTasks, humanDate, dueTone } from '../lib/ui';
@@ -295,75 +295,30 @@ function DoneBlock({ done, sort, showDone, setShowDone, onToggle, onOpen }) {
   );
 }
 
-/* ===== Перетаскиваемый список с живым превью + FLIP-анимация ===== */
+/* ===== Перетаскиваемый список: карточка едет за курсором, соседи расступаются ===== */
+const SHIFT_MS = 180;
+
 function SortableList({ items, onReorder, renderRow }) {
   const [list, setList] = useState(items);
-  const [dragId, setDragId] = useState(null);
-  const containerRef = useRef(null);
+  const [drag, setDrag] = useState(null); // { startIndex, targetIndex, dy }
   const listRef = useRef(list);
-  const dragIdRef = useRef(null);
-  const dirty = useRef(false);
+  const dragRef = useRef(null);
+  const rowRefs = useRef([]);
+  const step = useRef(64);
   const suppressClick = useRef(false);
-  const rowEls = useRef(new Map());       // id -> DOM el
-  const prevTops = useRef(new Map());     // id -> top (px) до перестановки
   listRef.current = list;
 
-  // подтягиваем внешние изменения только когда сами не тащим
-  useEffect(() => { if (!dragIdRef.current) setList(items); }, [items]);
+  useEffect(() => { if (!dragRef.current) setList(items); }, [items]);
 
-  // FLIP: плавно доводим строки на новые места после каждой перестановки
-  useLayoutEffect(() => {
-    if (!dragIdRef.current || prevTops.current.size === 0) return;
-    rowEls.current.forEach((el, id) => {
-      if (!el) return;
-      const prev = prevTops.current.get(id);
-      const now = el.getBoundingClientRect().top;
-      if (prev == null) return;
-      const dy = prev - now;
-      if (id === dragIdRef.current || !dy) { el.style.transition = 'none'; el.style.transform = ''; return; }
-      el.style.transition = 'none';
-      el.style.transform = `translateY(${dy}px)`;
-      requestAnimationFrame(() => {
-        el.style.transition = 'transform .22s cubic-bezier(.2,.7,.2,1)';
-        el.style.transform = '';
-      });
-    });
-    prevTops.current.clear();
-  });
-
-  const captureTops = () => {
-    const m = new Map();
-    rowEls.current.forEach((el, id) => { if (el) m.set(id, el.getBoundingClientRect().top); });
-    prevTops.current = m;
-  };
-
-  const reorderTo = (targetIndex) => {
-    const from = listRef.current.findIndex(t => t.id === dragIdRef.current);
-    const to = Math.max(0, Math.min(targetIndex, listRef.current.length - 1));
-    if (from === -1 || from === to) return;
-    captureTops();
-    setList(prev => {
-      const f = prev.findIndex(t => t.id === dragIdRef.current);
-      if (f === -1 || f === to) return prev;
-      const copy = [...prev];
-      const [m] = copy.splice(f, 1);
-      copy.splice(to, 0, m);
-      dirty.current = true;
-      listRef.current = copy;
-      return copy;
-    });
-  };
-
-  const onMove = (ev) => {
-    if (!dragIdRef.current || !containerRef.current) return;
-    const y = ev.clientY;
-    const rows = [...containerRef.current.children];
-    let target = rows.findIndex(r => {
-      const rect = r.getBoundingClientRect();
-      return y < rect.top + rect.height / 2;
-    });
-    if (target === -1) target = rows.length - 1;
-    reorderTo(target);
+  const onMove = (e) => {
+    const st = dragRef.current;
+    if (!st) return;
+    const dy = e.clientY - st.startY;
+    const n = listRef.current.length;
+    const targetIndex = Math.max(0, Math.min(n - 1, Math.round(st.startIndex + dy / step.current)));
+    st.dy = dy;
+    st.targetIndex = targetIndex;
+    setDrag({ startIndex: st.startIndex, targetIndex, dy });
   };
 
   const onUp = () => {
@@ -371,24 +326,33 @@ function SortableList({ items, onReorder, renderRow }) {
     window.removeEventListener('pointerup', onUp);
     document.body.style.userSelect = '';
     document.body.style.cursor = '';
-    prevTops.current.clear();
-    rowEls.current.forEach(el => { if (el) { el.style.transition = ''; el.style.transform = ''; } });
-    if (dirty.current) {
-      onReorder(listRef.current);
+    const st = dragRef.current;
+    dragRef.current = null;
+    if (st && st.targetIndex !== st.startIndex) {
+      const copy = [...listRef.current];
+      const [m] = copy.splice(st.startIndex, 1);
+      copy.splice(st.targetIndex, 0, m);
+      listRef.current = copy;
+      setList(copy);
+      onReorder(copy);
       suppressClick.current = true;
-      setTimeout(() => { suppressClick.current = false; }, 60);
+      setTimeout(() => { suppressClick.current = false; }, 90);
     }
-    dirty.current = false;
-    dragIdRef.current = null;
-    setDragId(null);
+    setDrag(null);
   };
 
-  const startDrag = (e, id) => {
+  const startDrag = (e, index) => {
     if (e.button != null && e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    dragIdRef.current = id;
-    setDragId(id);
+    const rows = rowRefs.current.filter(Boolean);
+    if (rows[0] && rows[1]) {
+      step.current = rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().top;
+    } else if (rows[0]) {
+      step.current = rows[0].getBoundingClientRect().height + 8;
+    }
+    dragRef.current = { startIndex: index, startY: e.clientY, dy: 0, targetIndex: index };
+    setDrag({ startIndex: index, targetIndex: index, dy: 0 });
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'grabbing';
     window.addEventListener('pointermove', onMove);
@@ -396,18 +360,34 @@ function SortableList({ items, onReorder, renderRow }) {
   };
 
   return (
-    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {list.map(t => (
-        <div key={t.id}
-          ref={(el) => { if (el) rowEls.current.set(t.id, el); else rowEls.current.delete(t.id); }}
-          onClickCapture={(e) => { if (suppressClick.current) { e.stopPropagation(); e.preventDefault(); } }}
-          style={{ willChange: dragId ? 'transform' : 'auto' }}>
-          {renderRow(t, {
-            dragging: t.id === dragId,
-            handleProps: { onPointerDown: (e) => startDrag(e, t.id) },
-          })}
-        </div>
-      ))}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {list.map((t, i) => {
+        let translateY = 0;
+        let transition = `transform ${SHIFT_MS}ms cubic-bezier(.2,.7,.2,1)`;
+        let z = 1;
+        let lifted = false;
+        if (drag) {
+          const { startIndex, targetIndex, dy } = drag;
+          if (i === startIndex) {
+            translateY = dy; transition = 'none'; z = 20; lifted = true;
+          } else if (targetIndex > startIndex && i > startIndex && i <= targetIndex) {
+            translateY = -step.current;
+          } else if (targetIndex < startIndex && i >= targetIndex && i < startIndex) {
+            translateY = step.current;
+          }
+        }
+        return (
+          <div key={t.id}
+            ref={(el) => { rowRefs.current[i] = el; }}
+            onClickCapture={(e) => { if (suppressClick.current) { e.stopPropagation(); e.preventDefault(); } }}
+            style={{ position: 'relative', zIndex: z, transform: `translateY(${translateY}px)`, transition, willChange: drag ? 'transform' : 'auto' }}>
+            {renderRow(t, {
+              dragging: lifted,
+              handleProps: { onPointerDown: (e) => startDrag(e, i) },
+            })}
+          </div>
+        );
+      })}
     </div>
   );
 }
