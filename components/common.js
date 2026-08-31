@@ -1,7 +1,8 @@
 'use client';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { today, localDateFromOffset } from '../lib/store';
 import { PRIO, prio } from '../lib/ui';
+import DatePicker from './DatePicker';
 
 // ===== Конфетти + звук победы =====
 export function triggerConfetti(element) {
@@ -85,18 +86,118 @@ export function PriorityBadge({ value }) {
   );
 }
 
-// ===== Выбор приоритета =====
-export function PrioritySelect({ value, onChange, style }) {
+// ===== Кастомный выпадающий список приоритета (в стиле сайта) =====
+export function PrioritySelect({ value, onChange, style, fullWidth }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const p = prio(value);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
   return (
-    <select value={value} onChange={e => onChange(e.target.value)} style={{
-      background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
-      padding: '8px 30px 8px 12px', fontSize: 13, fontWeight: 600,
-      color: prio(value).color, outline: 'none', cursor: 'pointer', ...style,
-    }}>
-      <option value="high">Высокий</option>
-      <option value="medium">Средний</option>
-      <option value="low">Низкий</option>
-    </select>
+    <div ref={ref} style={{ position: 'relative', display: fullWidth ? 'block' : 'inline-block', width: fullWidth ? '100%' : undefined, ...style }}>
+      <button type="button" onClick={() => setOpen(o => !o)} style={{
+        display: 'flex', alignItems: 'center', gap: 8, width: fullWidth ? '100%' : undefined,
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+        padding: '8px 12px', fontSize: 13, fontWeight: 600, color: p.color, cursor: 'pointer',
+      }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.color, flexShrink: 0 }} />
+        {p.label}
+        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>
+          <path stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0, minWidth: '100%', zIndex: 260,
+          background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+          boxShadow: 'var(--shadow-lg)', padding: 4,
+        }}>
+          {['high', 'medium', 'low'].map(k => {
+            const o = prio(k);
+            const sel = k === value;
+            return (
+              <button key={k} type="button" onClick={() => { onChange(k); setOpen(false); }} style={{
+                display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left',
+                background: sel ? 'var(--surface-2)' : 'none', border: 'none', borderRadius: 7,
+                padding: '8px 10px', fontSize: 13.5, fontWeight: 600, color: o.color, cursor: 'pointer',
+              }}
+                onMouseEnter={e => { if (!sel) e.currentTarget.style.background = 'var(--surface-hover)'; }}
+                onMouseLeave={e => { if (!sel) e.currentTarget.style.background = 'none'; }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: o.color, flexShrink: 0 }} />
+                {o.label}
+                {sel && <svg width="13" height="13" fill="none" viewBox="0 0 24 24" style={{ marginLeft: 'auto' }}><polyline stroke="currentColor" strokeWidth="2.5" points="20 6 9 17 4 12" /></svg>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== Универсальный выпадающий список (в стиле сайта) =====
+export function Select({ value, onChange, options, fullWidth, placeholder = 'Выбрать…' }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const current = options.find(o => o.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', width: fullWidth ? '100%' : undefined, display: fullWidth ? 'block' : 'inline-block' }}>
+      <button type="button" onClick={() => setOpen(o => !o)} style={{
+        display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+        padding: '10px 12px', fontSize: 14, fontWeight: 500, color: 'var(--text)', cursor: 'pointer',
+      }}>
+        {current?.color && <span style={{ width: 8, height: 8, borderRadius: '50%', background: current.color, flexShrink: 0 }} />}
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{current?.label || placeholder}</span>
+        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" style={{ marginLeft: 'auto', flexShrink: 0, color: 'var(--text-muted)' }}>
+          <path stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0, width: '100%', zIndex: 260,
+          background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+          boxShadow: 'var(--shadow-lg)', padding: 4, maxHeight: 240, overflowY: 'auto',
+        }}>
+          {options.map(o => {
+            const sel = o.value === value;
+            return (
+              <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }} style={{
+                display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left',
+                background: sel ? 'var(--surface-2)' : 'none', border: 'none', borderRadius: 7,
+                padding: '8px 10px', fontSize: 13.5, fontWeight: 500, color: 'var(--text)', cursor: 'pointer',
+              }}
+                onMouseEnter={e => { if (!sel) e.currentTarget.style.background = 'var(--surface-hover)'; }}
+                onMouseLeave={e => { if (!sel) e.currentTarget.style.background = 'none'; }}>
+                {o.color && <span style={{ width: 8, height: 8, borderRadius: '50%', background: o.color, flexShrink: 0 }} />}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</span>
+                {sel && <svg width="13" height="13" fill="none" viewBox="0 0 24 24" style={{ marginLeft: 'auto', flexShrink: 0, color: 'var(--primary)' }}><polyline stroke="currentColor" strokeWidth="2.5" points="20 6 9 17 4 12" /></svg>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -105,29 +206,21 @@ export function DateQuickPick({ value, onChange }) {
   const t = today();
   const tomorrow = localDateFromOffset(1);
   const isCustom = value && value !== t && value !== tomorrow;
-  const [showPicker, setShowPicker] = useState(isCustom);
 
-  const chip = (active) => ({
+  const chip = (activeState) => ({
     padding: '7px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 600,
-    border: `1px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
-    background: active ? 'var(--primary-soft)' : 'var(--surface)',
-    color: active ? 'var(--primary)' : 'var(--text-secondary)',
+    border: `1px solid ${activeState ? 'var(--primary)' : 'var(--border)'}`,
+    background: activeState ? 'var(--primary-soft)' : 'var(--surface)',
+    color: activeState ? 'var(--primary)' : 'var(--text-secondary)',
     cursor: 'pointer', transition: 'all .15s', whiteSpace: 'nowrap',
   });
 
   return (
     <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-      <button type="button" style={chip(value === t)} onClick={() => { onChange(t); setShowPicker(false); }}>Сегодня</button>
-      <button type="button" style={chip(value === tomorrow)} onClick={() => { onChange(tomorrow); setShowPicker(false); }}>Завтра</button>
-      <button type="button" style={chip(showPicker || isCustom)} onClick={() => setShowPicker(v => !v)}>Выбрать дату</button>
-      <button type="button" style={chip(!value)} onClick={() => { onChange(null); setShowPicker(false); }}>Без даты</button>
-      {(showPicker || isCustom) && (
-        <input type="date" value={value || ''} onChange={e => onChange(e.target.value || null)}
-          style={{
-            background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)',
-            borderRadius: 8, padding: '6px 10px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', outline: 'none',
-          }} />
-      )}
+      <button type="button" style={chip(value === t)} onClick={() => onChange(t)}>Сегодня</button>
+      <button type="button" style={chip(value === tomorrow)} onClick={() => onChange(tomorrow)}>Завтра</button>
+      <DatePicker value={isCustom ? value : null} active={isCustom} onChange={(v) => onChange(v)} />
+      <button type="button" style={chip(!value)} onClick={() => onChange(null)}>Без даты</button>
     </div>
   );
 }

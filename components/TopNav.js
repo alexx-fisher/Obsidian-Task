@@ -20,9 +20,7 @@ export default function TopNav({ onMenuClick }) {
             </svg>
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-            <div style={{ width: 26, height: 26, borderRadius: 8, background: 'linear-gradient(140deg, #7c6cff, #5a3fe0)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><polyline stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" points="4 12 10 18 20 6" /></svg>
-            </div>
+            <img src="/icon.webp" alt="Tudu" width={26} height={26} style={{ borderRadius: 8, flexShrink: 0 }} />
             <span style={{ fontSize: 19, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--text)' }}>Tudu</span>
           </div>
           <div className="search-wrap" style={{

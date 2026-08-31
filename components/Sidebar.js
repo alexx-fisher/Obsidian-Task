@@ -51,9 +51,7 @@ export default function Sidebar({ projects, activeProjectId, activeScreen, onPro
         overflowY: 'auto', zIndex: 40,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '0 8px', marginBottom: 22 }}>
-          <div style={{ width: 38, height: 38, borderRadius: 11, background: 'linear-gradient(140deg, #7c6cff, #5a3fe0)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 4px 10px rgba(109,94,252,0.35)' }}>
-            <svg width="19" height="19" fill="none" viewBox="0 0 24 24"><path fill="#fff" d="M12 2L2 7l10 5 10-5-10-5zm0 13L2 10v7l10 5 10-5v-7l-10 5z" /></svg>
-          </div>
+          <img src="/icon.webp" alt="Tudu" width={38} height={38} style={{ borderRadius: 11, flexShrink: 0, boxShadow: '0 4px 10px rgba(26,126,252,0.3)' }} />
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Проекты</div>
             <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1 }}>Рабочее пространство</div>

@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { today } from '../lib/store';
 import { TaskCheckbox, PriorityBadge, PrioritySelect, DateQuickPick, CalIcon } from './common';
 import { prio, groupTasks, GROUP_META, sortTasks, humanDate, dueTone } from '../lib/ui';
@@ -24,7 +24,7 @@ export default function ProjectView({ project, tasks, onBack, onAddTask, onToggl
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [filter, setFilter] = useState('active');
-  const [sort, setSort] = useState('date');
+  const [sort, setSort] = useState('manual');
   const [showDone, setShowDone] = useState(false);
 
   if (!project) return null;
@@ -222,19 +222,16 @@ function TaskList({ active, done, filter, sort, showDone, setShowDone, onToggleT
     );
   }
 
-  // Вручную — плоский перетаскиваемый список активных
+  // Вручную — плоский перетаскиваемый список активных с живым превью
   if (sort === 'manual') {
     const ordered = sortTasks(active, 'manual');
     if (ordered.length === 0 && !(filter === 'all' && done.length)) return <Empty text="Задач пока нет — добавь первую выше" />;
     return (
       <div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {ordered.map((t, i) => (
-            <TaskRow key={t.id} task={t} index={i} list={ordered} draggable
-              onToggle={onToggleTask} onOpen={onOpenTask}
-              onReorder={(re) => onReorderTasks(re)} />
-          ))}
-        </div>
+        <SortableList items={ordered} onReorder={onReorderTasks}
+          renderRow={(t, { dragging, handleProps }) => (
+            <TaskRow task={t} dragging={dragging} handleProps={handleProps} onToggle={onToggleTask} onOpen={onOpenTask} />
+          )} />
         {filter === 'all' && done.length > 0 && (
           <DoneBlock done={done} sort={sort} showDone={showDone} setShowDone={setShowDone} onToggle={onToggleTask} onOpen={onOpenTask} />
         )}
@@ -298,41 +295,153 @@ function DoneBlock({ done, sort, showDone, setShowDone, onToggle, onOpen }) {
   );
 }
 
-/* ===== Строка задачи ===== */
-function TaskRow({ task, onToggle, onOpen, index, list, draggable, onReorder }) {
-  const [hover, setHover] = useState(false);
-  const p = prio(task.priority);
+/* ===== Перетаскиваемый список с живым превью + FLIP-анимация ===== */
+function SortableList({ items, onReorder, renderRow }) {
+  const [list, setList] = useState(items);
+  const [dragId, setDragId] = useState(null);
+  const containerRef = useRef(null);
+  const listRef = useRef(list);
+  const dragIdRef = useRef(null);
+  const dirty = useRef(false);
+  const suppressClick = useRef(false);
+  const rowEls = useRef(new Map());       // id -> DOM el
+  const prevTops = useRef(new Map());     // id -> top (px) до перестановки
+  listRef.current = list;
 
-  const dragProps = draggable ? {
-    draggable: true,
-    onDragStart: (e) => e.dataTransfer.setData('idx', index),
-    onDragOver: (e) => e.preventDefault(),
-    onDrop: (e) => {
-      e.preventDefault();
-      const from = parseInt(e.dataTransfer.getData('idx'));
-      if (from === index) return;
-      const re = [...list];
-      const [m] = re.splice(from, 1);
-      re.splice(index, 0, m);
-      onReorder(re);
-    },
-  } : {};
+  // подтягиваем внешние изменения только когда сами не тащим
+  useEffect(() => { if (!dragIdRef.current) setList(items); }, [items]);
+
+  // FLIP: плавно доводим строки на новые места после каждой перестановки
+  useLayoutEffect(() => {
+    if (!dragIdRef.current || prevTops.current.size === 0) return;
+    rowEls.current.forEach((el, id) => {
+      if (!el) return;
+      const prev = prevTops.current.get(id);
+      const now = el.getBoundingClientRect().top;
+      if (prev == null) return;
+      const dy = prev - now;
+      if (id === dragIdRef.current || !dy) { el.style.transition = 'none'; el.style.transform = ''; return; }
+      el.style.transition = 'none';
+      el.style.transform = `translateY(${dy}px)`;
+      requestAnimationFrame(() => {
+        el.style.transition = 'transform .22s cubic-bezier(.2,.7,.2,1)';
+        el.style.transform = '';
+      });
+    });
+    prevTops.current.clear();
+  });
+
+  const captureTops = () => {
+    const m = new Map();
+    rowEls.current.forEach((el, id) => { if (el) m.set(id, el.getBoundingClientRect().top); });
+    prevTops.current = m;
+  };
+
+  const reorderTo = (targetIndex) => {
+    const from = listRef.current.findIndex(t => t.id === dragIdRef.current);
+    const to = Math.max(0, Math.min(targetIndex, listRef.current.length - 1));
+    if (from === -1 || from === to) return;
+    captureTops();
+    setList(prev => {
+      const f = prev.findIndex(t => t.id === dragIdRef.current);
+      if (f === -1 || f === to) return prev;
+      const copy = [...prev];
+      const [m] = copy.splice(f, 1);
+      copy.splice(to, 0, m);
+      dirty.current = true;
+      listRef.current = copy;
+      return copy;
+    });
+  };
+
+  const onMove = (ev) => {
+    if (!dragIdRef.current || !containerRef.current) return;
+    const y = ev.clientY;
+    const rows = [...containerRef.current.children];
+    let target = rows.findIndex(r => {
+      const rect = r.getBoundingClientRect();
+      return y < rect.top + rect.height / 2;
+    });
+    if (target === -1) target = rows.length - 1;
+    reorderTo(target);
+  };
+
+  const onUp = () => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+    prevTops.current.clear();
+    rowEls.current.forEach(el => { if (el) { el.style.transition = ''; el.style.transform = ''; } });
+    if (dirty.current) {
+      onReorder(listRef.current);
+      suppressClick.current = true;
+      setTimeout(() => { suppressClick.current = false; }, 60);
+    }
+    dirty.current = false;
+    dragIdRef.current = null;
+    setDragId(null);
+  };
+
+  const startDrag = (e, id) => {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragIdRef.current = id;
+    setDragId(id);
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'grabbing';
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
 
   return (
-    <div {...dragProps}
-      onClick={() => onOpen(task.id)}
+    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {list.map(t => (
+        <div key={t.id}
+          ref={(el) => { if (el) rowEls.current.set(t.id, el); else rowEls.current.delete(t.id); }}
+          onClickCapture={(e) => { if (suppressClick.current) { e.stopPropagation(); e.preventDefault(); } }}
+          style={{ willChange: dragId ? 'transform' : 'auto' }}>
+          {renderRow(t, {
+            dragging: t.id === dragId,
+            handleProps: { onPointerDown: (e) => startDrag(e, t.id) },
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ===== Строка задачи ===== */
+function TaskRow({ task, onToggle, onOpen, dragging, handleProps }) {
+  const [hover, setHover] = useState(false);
+
+  return (
+    <div
+      onClick={() => { if (!dragging) onOpen(task.id); }}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       style={{
         display: 'flex', alignItems: 'center', gap: 12,
-        background: hover ? 'var(--surface-hover)' : 'var(--surface)',
-        border: '1px solid var(--border)', borderRadius: 12, padding: '13px 16px',
-        cursor: 'pointer', transition: 'background .12s, border-color .12s',
-        borderColor: hover ? 'var(--border-strong)' : 'var(--border)',
-        opacity: task.completed ? 0.72 : 1,
+        background: dragging ? 'var(--primary-soft)' : hover ? 'var(--surface-hover)' : 'var(--surface)',
+        border: '1px solid', borderRadius: 12, padding: '13px 16px',
+        cursor: 'pointer', transition: 'background .12s, border-color .12s, box-shadow .12s, transform .12s',
+        borderColor: dragging ? 'var(--primary)' : hover ? 'var(--border-strong)' : 'var(--border)',
+        boxShadow: dragging ? 'var(--shadow-lg)' : 'none',
+        transform: dragging ? 'scale(1.015)' : 'none',
+        opacity: task.completed && !dragging ? 0.72 : 1,
+        position: 'relative', zIndex: dragging ? 5 : 'auto',
       }}>
-      {draggable && (
-        <span style={{ cursor: 'grab', color: 'var(--text-muted)', opacity: hover ? 0.6 : 0.25, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-          <svg width="9" height="15" viewBox="0 0 10 16" fill="currentColor"><circle cx="2" cy="3" r="1.5" /><circle cx="8" cy="3" r="1.5" /><circle cx="2" cy="8" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="2" cy="13" r="1.5" /><circle cx="8" cy="13" r="1.5" /></svg>
+      {handleProps && (
+        <span
+          {...handleProps}
+          onClick={e => e.stopPropagation()}
+          title="Перетащите, чтобы изменить порядок"
+          style={{
+            cursor: 'grab', color: 'var(--text-muted)', opacity: hover || dragging ? 0.9 : 0.45,
+            flexShrink: 0, display: 'flex', alignItems: 'center', touchAction: 'none',
+            padding: '12px 8px', margin: '-12px -6px -12px -6px',
+          }}>
+          <svg width="11" height="17" viewBox="0 0 10 16" fill="currentColor"><circle cx="2" cy="3" r="1.6" /><circle cx="8" cy="3" r="1.6" /><circle cx="2" cy="8" r="1.6" /><circle cx="8" cy="8" r="1.6" /><circle cx="2" cy="13" r="1.6" /><circle cx="8" cy="13" r="1.6" /></svg>
         </span>
       )}
       <TaskCheckbox completed={task.completed} onToggle={() => onToggle(task.id)} />

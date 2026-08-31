@@ -1,7 +1,8 @@
 'use client';
 import { useState } from 'react';
 import { today } from '../lib/store';
-import { DateQuickPick, PrioritySelect } from './common';
+import { DateQuickPick, PrioritySelect, Select } from './common';
+import { projectColor } from '../lib/ui';
 
 export default function FabModal({ projects, onClose, onAddTask, onAddProject }) {
   const [mode, setMode] = useState('task');
@@ -51,18 +52,14 @@ export default function FabModal({ projects, onClose, onAddTask, onAddProject })
           {mode === 'task' && (
             <>
               <Field label="Проект">
-                <select value={projectId} onChange={e => setProjectId(e.target.value)} style={{
-                  width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
-                  borderRadius: 10, padding: '10px 12px', fontSize: 14, color: 'var(--text)', outline: 'none', cursor: 'pointer',
-                }}>
-                  {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+                <Select value={projectId} onChange={setProjectId} fullWidth
+                  options={projects.map((p, i) => ({ value: p.id, label: p.name, color: projectColor(i) }))} />
               </Field>
               <Field label="Дата">
                 <DateQuickPick value={dueDate} onChange={setDueDate} />
               </Field>
               <Field label="Приоритет">
-                <PrioritySelect value={priority} onChange={setPriority} style={{ width: '100%' }} />
+                <PrioritySelect value={priority} onChange={setPriority} fullWidth />
               </Field>
             </>
           )}
